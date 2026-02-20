@@ -1,0 +1,308 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ================= ENUMS =================
+
+enum FormStatus {
+  ACTIVE
+  INACTIVE
+}
+
+enum QuestionType {
+  TEXT
+  DROPDOWN
+}
+
+enum SlotStatus {
+  AVAILABLE
+  BOOKED
+  CANCELLED
+}
+
+enum MeetingStatus {
+  SCHEDULED
+  CANCELLED
+  COMPLETED
+}
+
+enum Provider {
+  GOOGLE_MEET
+  ZOOM
+}
+enum AvailabilityStatus {
+  AVAILABLE
+  UNAVAILABLE
+}
+
+// ================= MASTER DATA =================
+
+model Course {
+  id    Int    @id @default(autoincrement())
+  name  String
+  code  String @unique
+  lmsId String @unique
+
+  batches Batch[]
+}
+
+model Center {
+  id       Int    @id @default(autoincrement())
+  name     String
+  location String?
+  lmsId    String @unique
+
+  batches  Batch[]
+  teachers Teacher[]
+}
+
+model Batch {
+  id       Int    @id @default(autoincrement())
+  name     String
+  code     String
+  lmsId    String @unique
+
+  centerId Int
+  courseId Int
+
+  center   Center @relation(fields: [centerId], references: [id])
+  course   Course @relation(fields: [courseId], references: [id])
+
+  students       Student[]
+  teacherBatches TeacherBatch[]
+  availabilities Availability[]
+  slots          Slot[]
+}
+
+model Student {
+  id         Int    @id @default(autoincrement())
+  rollNumber String @unique
+  userId     String @unique
+  name       String
+
+  batchId Int
+  batch   Batch @relation(fields: [batchId], references: [id])
+
+  meetings Meeting[]
+}
+
+// ================= TEACHER =================
+
+model Teacher {
+  id    Int    @id @default(autoincrement())
+  name  String
+  email String @unique
+  phone String?
+
+  centerId Int?
+  center   Center? @relation(fields: [centerId], references: [id])
+
+  teacherBatches TeacherBatch[]
+  availabilities Availability[]
+  meetings       Meeting[]
+  slots          Slot[]
+
+  providerSetting TeacherProviderSetting?
+}
+
+model TeacherBatch {
+  id        Int @id @default(autoincrement())
+  teacherId Int
+  batchId   Int
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  batch   Batch   @relation(fields: [batchId], references: [id])
+
+  @@unique([teacherId, batchId])
+}
+
+// ================= AVAILABILITY =================
+
+model Availability {
+  id        Int @id @default(autoincrement())
+
+  teacherId Int
+  // batchId removed
+
+  startAt DateTime
+  endAt   DateTime
+
+  slotDuration Int
+  status AvailabilityStatus @default(AVAILABLE)
+  
+  
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  batches Batch[]
+  slots   Slot[]
+
+  @@index([teacherId, startAt])
+}
+
+// ================= SLOTS =================
+
+model Slot {
+  id Int @id @default(autoincrement())
+
+  teacherId Int
+  // batchId removed
+
+  startAt DateTime
+  endAt   DateTime
+
+  status SlotStatus @default(AVAILABLE)
+  availabilityId Int
+  availability Availability @relation(fields: [availabilityId], references: [id])
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+  batches Batch[]
+
+  meeting Meeting?
+
+  createdAt DateTime @default(now())
+  deletedAt DateTime?
+
+  @@index([teacherId, startAt])
+}
+
+// ================= MEETING =================
+
+model Meeting {
+  id Int @id @default(autoincrement())
+
+  slotId    Int @unique
+  studentId Int
+  
+  // Denormalized teacherId for easy access, though accessible via Slot too.
+  // User schema has it.
+  teacherId Int 
+
+  status MeetingStatus @default(SCHEDULED)
+
+  providerUsed Provider?
+  joinUrl     String?
+
+  notes String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  cancelledAt DateTime?
+
+  slot    Slot    @relation(fields: [slotId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+
+  submission FormSubmission?
+
+  @@index([studentId, createdAt])
+}
+
+// ================= AUTH & USERS =================
+
+model User {
+  id       Int      @id @default(autoincrement())
+  email    String   @unique
+  password String
+  name     String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+// ================= FORM SYSTEM =================
+
+model Form {
+  id     Int        @id @default(autoincrement())
+  name   String
+  status FormStatus @default(INACTIVE)
+
+  questions   FormQuestion[]
+  submissions FormSubmission[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Question {
+  id      Int          @id @default(autoincrement())
+  title   String
+  type    QuestionType
+  options Json?
+
+  forms FormQuestion[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  deletedAt DateTime?
+}
+
+model FormQuestion {
+  id         Int @id @default(autoincrement())
+  formId     Int
+  questionId Int
+  sortOrder  Int @default(0)
+
+  form     Form     @relation(fields: [formId], references: [id])
+  question Question @relation(fields: [questionId], references: [id])
+  answers  FormAnswer[]
+
+  @@unique([formId, questionId])
+}
+
+model QuestionLookup {
+    id Int @id @default(autoincrement())
+    value String
+    
+    answers FormAnswer[]
+}
+
+model FormSubmission {
+  id Int @id @default(autoincrement())
+
+  meetingId Int @unique
+  formId    Int
+
+  submittedAt DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+  form    Form    @relation(fields: [formId], references: [id])
+
+  answers FormAnswer[]
+}
+
+model FormAnswer {
+  id           Int @id @default(autoincrement())
+  submissionId Int
+  formQuestionId Int
+
+  answerText String?
+  
+  answerLookupId Int?
+  lookup QuestionLookup? @relation(fields: [answerLookupId], references: [id])
+
+  submission FormSubmission @relation(fields: [submissionId], references: [id])
+  formQuestion   FormQuestion   @relation(fields: [formQuestionId], references: [id])
+
+  @@unique([submissionId, formQuestionId])
+}
+
+// ================= PROVIDER SETTINGS =================
+
+model TeacherProviderSetting {
+  id        Int @id @default(autoincrement())
+  teacherId Int @unique
+
+  defaultProvider Provider @default(GOOGLE_MEET)
+
+  accessToken  String?
+  refreshToken String?
+  tokenExpiry  DateTime?
+
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+}
