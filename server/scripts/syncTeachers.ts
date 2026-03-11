@@ -29,73 +29,55 @@ async function syncAllData() {
 
         // 1. Sync Courses
         console.log(`Syncing ${courses.length} Courses...`);
-        let courseCount = 0;
-        for (const course of courses) {
-            await prisma.course.upsert({
-                where: { lmsId: course.courseId },
-                update: { name: course.name, code: course.courseCode || course.courseId },
-                create: { name: course.name, code: course.courseCode || course.courseId, lmsId: course.courseId }
-            });
-            courseCount++;
-            if (courseCount % 50 === 0 || courseCount === courses.length) {
-                console.log(`Progress: ${courseCount}/${courses.length} courses synced.`);
-            }
-        }
+        // for (const course of courses) {
+        //     await prisma.course.upsert({
+        //         where: { lmsId: course.courseId },
+        //         update: { name: course.name, code: course.courseCode || course.courseId },
+        //         create: { name: course.name, code: course.courseCode || course.courseId, lmsId: course.courseId }
+        //     });
+        // }
 
         // 2. Sync Centers
         console.log(`Syncing ${centers.length} Centers...`);
-        let centerCount = 0;
-        for (const center of centers) {
-            await prisma.center.upsert({
-                where: { lmsId: center.centerId },
-                update: { name: center.name },
-                create: { name: center.name, lmsId: center.centerId }
-            });
-            centerCount++;
-            if (centerCount % 50 === 0 || centerCount === centers.length) {
-                console.log(`Progress: ${centerCount}/${centers.length} centers synced.`);
-            }
-        }
+        // for (const center of centers) {
+        //     await prisma.center.upsert({
+        //         where: { lmsId: center.centerId },
+        //         update: { name: center.name },
+        //         create: { name: center.name, lmsId: center.centerId }
+        //     });
+        // }
 
         // 3. Sync Batches
         console.log(`Syncing ${batches.length} Batches...`);
-
-        // Optimize: Pre-fetch centers and courses to avoid redundant lookups
         const centersMap = new Map((await prisma.center.findMany()).map(c => [c.lmsId, c.id]));
         const coursesMap = new Map((await prisma.course.findMany()).map(c => [c.lmsId, c.id]));
 
-        let batchCount = 0;
-        for (const batch of batches) {
-            const centerId = centersMap.get(batch.centerId);
-            const courseId = coursesMap.get(batch.courseId);
+        // for (const batch of batches) {
+        //     const centerId = centersMap.get(batch.centerId);
+        //     const courseId = coursesMap.get(batch.courseId);
 
-            if (!centerId || !courseId) {
-                console.warn(`Skipping batch ${batch.name} due to missing center/course relation (Center: ${batch.centerId}, Course: ${batch.courseId}).`);
-                batchCount++;
-                continue;
-            }
+        //     if (!centerId || !courseId) {
+        //         console.warn(`Skipping batch ${batch.name} due to missing center/course relation.`);
+        //         continue;
+        //     }
 
-            await prisma.batch.upsert({
-                where: { lmsId: batch.batchId },
-                update: {
-                    name: batch.name,
-                    code: batch.batchCode || batch.batchId,
-                    centerId: centerId,
-                    courseId: courseId
-                },
-                create: {
-                    name: batch.name,
-                    code: batch.batchCode || batch.batchId,
-                    lmsId: batch.batchId,
-                    centerId: centerId,
-                    courseId: courseId
-                }
-            });
-            batchCount++;
-            if (batchCount % 100 === 0 || batchCount === batches.length) {
-                console.log(`Progress: ${batchCount}/${batches.length} batches synced.`);
-            }
-        }
+        //     await prisma.batch.upsert({
+        //         where: { lmsId: batch.batchId },
+        //         update: {
+        //             name: batch.name,
+        //             code: batch.batchCode || batch.batchId,
+        //             centerId,
+        //             courseId
+        //         },
+        //         create: {
+        //             name: batch.name,
+        //             code: batch.batchCode || batch.batchId,
+        //             lmsId: batch.batchId,
+        //             centerId,
+        //             courseId
+        //         }
+        //     });
+        // }
 
         // 4. Sync Teachers
         console.log('Syncing Teachers...');
@@ -108,17 +90,38 @@ async function syncAllData() {
                 continue;
             }
 
-            // Find center reference (pick first one from Lambda if multiple)
             let centerId: number | undefined = undefined;
             if (extCenters && extCenters.length > 0) {
                 const center = await prisma.center.findUnique({ where: { lmsId: extCenters[0] } });
                 if (center) centerId = center.id;
             }
 
+            // Fallback: Resolve center from the first valid batch if centers array is empty
+            if (!centerId && extBatches && Array.isArray(extBatches) && extBatches.length > 0) {
+                for (const extBatchId of extBatches) {
+                    const batch = await prisma.batch.findUnique({ where: { lmsId: extBatchId } });
+                    if (batch && batch.centerId) {
+                        centerId = batch.centerId;
+                        break;
+                    }
+                }
+            }
+
             const teacher = await prisma.teacher.upsert({
                 where: { email },
-                update: { name, phone: mobileNo || null, centerId: centerId || null },
-                create: { name, email, phone: mobileNo || null, centerId: centerId || null }
+                update: {
+                    name,
+                    phone: mobileNo || null,
+                    centerId: centerId || null,
+                    lmsId: userId 
+                },
+                create: {
+                    name,
+                    email,
+                    phone: mobileNo || null,
+                    centerId: centerId || null,
+                    lmsId: userId 
+                }
             });
 
             // Sync Teacher-Batch relations
@@ -136,7 +139,7 @@ async function syncAllData() {
             }
 
             syncedCount++;
-            if (syncedCount % 10 === 0 || syncedCount === teachers.length) {
+            if (syncedCount % 50 === 0 || syncedCount === teachers.length) {
                 console.log(`Progress: ${syncedCount}/${teachers.length} teachers synced.`);
             }
         }

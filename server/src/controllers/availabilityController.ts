@@ -98,7 +98,7 @@ export const createAvailability = async (req: Request, res: Response) => {
         if (existingBatches.length !== batchIds.length) {
             const existingIds = existingBatches.map(b => b.id);
             const missingIds = batchIds.filter(id => !existingIds.includes(parseInt(id)));
-            res.status(400).json({ error: `Some batches do not exist: ${missingIds.join(', ')}` });
+            res.status(400).json({ error: `Some batches do not exist: ${missingIds.join(', ')} ` });
             return;
         }
 
@@ -297,5 +297,33 @@ export const deleteSlot = async (req: Request, res: Response) => {
     } catch (error) {
         console.error('Error deleting slot:', error);
         res.status(500).json({ error: 'Failed to delete slot' });
+    }
+};
+// For students to view a specific teacher's availability
+export const getTeacherAvailability = async (req: Request, res: Response) => {
+    const { teacherId } = req.params;
+    const { startDate, endDate } = req.query;
+
+    if (!startDate || !endDate) {
+        res.status(400).json({ error: 'startDate and endDate required' });
+        return;
+    }
+
+    try {
+        const slots = await prisma.slot.findMany({
+            where: {
+                teacherId: parseInt(teacherId as string),
+                deletedAt: null,
+                startAt: {
+                    gte: new Date(startDate as string),
+                    lte: new Date(endDate as string),
+                }
+            },
+            orderBy: { startAt: 'asc' }
+        });
+
+        res.json(slots);
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to fetch teacher availability' });
     }
 };

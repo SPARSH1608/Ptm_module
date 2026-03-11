@@ -2,11 +2,74 @@ import { Request, Response } from 'express';
 import prisma from '../config/prisma';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
+import * as lambdaService from '../services/lambdaService';
 
 const JWT_SECRET = process.env.JWT_SECRET || 'supersecret';
 
+export const requestOtp = async (req: Request, res: Response) => {
+    const { phoneNumber } = req.body;
+
+    try {
+        if (!phoneNumber) {
+            res.status(400).json({ error: 'Phone number is required' });
+            return;
+        }
+
+        const sessionId = await lambdaService.requestTeacherOtp(phoneNumber);
+        res.json({ message: 'OTP sent successfully', sessionId });
+    } catch (error: any) {
+        console.error('Request OTP error:', error);
+        res.status(500).json({ error: error.message || 'Failed to send OTP' });
+    }
+};
+
+export const verifyOtp = async (req: Request, res: Response) => {
+    const { phoneNumber, sessionId, otp } = req.body;
+
+    try {
+        if (!phoneNumber || !sessionId || !otp) {
+            res.status(400).json({ error: 'Missing required verification data' });
+            return;
+        }
+
+        let cognitoUser;
+        if (process.env.NODE_ENV === 'development' && otp === '123456') {
+            cognitoUser = {
+                userId: 'mock-id-' + phoneNumber,
+                name: 'Mock Teacher',
+                email: `teacher_${phoneNumber}@example.com`,
+                mobileNo: phoneNumber
+            };
+        } else {
+            cognitoUser = await lambdaService.verifyTeacherOtp(phoneNumber, sessionId, otp);
+        }
+
+        const teacher = await prisma.teacher.upsert({
+            where: { email: cognitoUser.email },
+            update: {
+                name: cognitoUser.name,
+                phone: phoneNumber,
+                lmsId: cognitoUser.userId
+            },
+            create: {
+                name: cognitoUser.name,
+                email: cognitoUser.email,
+                phone: phoneNumber,
+                lmsId: cognitoUser.userId
+            }
+        });
+
+        // 4. Generate Token
+        const token = jwt.sign({ id: teacher.id, role: 'TEACHER' }, JWT_SECRET, { expiresIn: '7d' });
+        res.json({ token, user: { ...teacher, role: 'TEACHER' } });
+    } catch (error: any) {
+        console.error('Verify OTP error:', error);
+        res.status(401).json({ error: error.message || 'Verification failed' });
+    }
+};
+
 export const login = async (req: Request, res: Response) => {
-    const { email, password, phoneNumber, otp } = req.body;
+    const { email, password } = req.body;
 
     try {
         if (email && password) {
@@ -22,27 +85,6 @@ export const login = async (req: Request, res: Response) => {
 
             const token = jwt.sign({ id: admin.id, role: 'ADMIN' }, JWT_SECRET, { expiresIn: '7d' });
             res.json({ token, user: { ...admin, role: 'ADMIN' } });
-            return;
-        }
-
-        if (phoneNumber && otp) {
-            // Teacher Login Flow (Mock OTP '123456')
-            if (otp !== '123456') {
-                res.status(401).json({ error: 'Invalid OTP' });
-                return;
-            }
-
-            const teacher = await prisma.teacher.findFirst({
-                where: { phone: phoneNumber }
-            });
-
-            if (!teacher) {
-                res.status(401).json({ error: 'Teacher not found' });
-                return;
-            }
-
-            const token = jwt.sign({ id: teacher.id, role: 'TEACHER' }, JWT_SECRET, { expiresIn: '7d' });
-            res.json({ token, user: { ...teacher, role: 'TEACHER' } });
             return;
         }
 
@@ -65,6 +107,13 @@ export const getMe = async (req: Request, res: Response) => {
             const teacher = await prisma.teacher.findUnique({ where: { id } });
             if (!teacher) return res.status(404).json({ error: 'Teacher not found' });
             res.json({ ...teacher, role: 'TEACHER' });
+        } else if (role === 'STUDENT') {
+            const student = await prisma.student.findUnique({
+                where: { id },
+                include: { batch: { include: { course: true } } }
+            });
+            if (!student) return res.status(404).json({ error: 'Student not found' });
+            res.json({ ...student, role: 'STUDENT' });
         } else {
             res.status(403).json({ error: 'Invalid role' });
         }

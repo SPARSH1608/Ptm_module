@@ -5,6 +5,7 @@ import CalendarView from './pages/CalendarView';
 import MeetsView from './pages/MeetsView';
 import StudentFormsView from './pages/StudentFormsView';
 import SettingsView from './pages/SettingsView';
+import GoogleCallback from './pages/GoogleCallback';
 import AdminFormManager from './pages/AdminFormManager';
 
 import { AuthProvider, useAuth } from './contexts/AuthContext';
@@ -23,6 +24,7 @@ function App() {
       <Router>
         <Routes>
           <Route path="/" element={<LoginPage />} />
+          <Route path="/google-callback" element={<GoogleCallback />} />
           <Route path="/dashboard" element={<DashboardLayout />}>
             <Route index element={<RoleRedirect />} />
             <Route path="calendar" element={<CalendarView />} />

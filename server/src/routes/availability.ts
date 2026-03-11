@@ -1,15 +1,14 @@
 import { Router } from 'express';
-import { getAvailability, createAvailability, deleteSlot, updateAvailabilityStatus, updateSlotStatus } from '../controllers/availabilityController';
+import { getAvailability, createAvailability, deleteSlot, updateAvailabilityStatus, updateSlotStatus, getTeacherAvailability } from '../controllers/availabilityController';
 import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
 
-router.use(authenticateToken);
-
-router.get('/', getAvailability);
-router.post('/', createAvailability);
-router.patch('/status/:id', updateAvailabilityStatus);
-router.patch('/slot/status/:id', updateSlotStatus);
-router.delete('/:id', deleteSlot);
+router.get('/teacher/:teacherId', getTeacherAvailability); // public - students view teacher slots
+router.get('/', authenticateToken, getAvailability);
+router.post('/', authenticateToken, createAvailability);
+router.patch('/status/:id', authenticateToken, updateAvailabilityStatus);
+router.patch('/slot/status/:id', authenticateToken, updateSlotStatus);
+router.delete('/:id', authenticateToken, deleteSlot);
 
 export default router;

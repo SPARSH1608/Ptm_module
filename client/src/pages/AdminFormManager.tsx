@@ -296,8 +296,16 @@ const AdminFormManager: React.FC = () => {
 
                 <div className="flex-1 overflow-y-auto p-4 space-y-2 custom-scrollbar relative">
                     {isLoading ? (
-                        <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-[2px] z-10">
-                            <Loader2 className="w-8 h-8 text-gray-900 animate-spin" />
+                        <div className="space-y-2 p-1 animate-pulse">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="p-4 rounded-2xl flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-xl bg-gray-100 shrink-0" />
+                                    <div className="flex-1 space-y-2">
+                                        <div className="h-3 bg-gray-100 rounded w-3/4" />
+                                        <div className="h-2.5 bg-gray-100 rounded w-1/3" />
+                                    </div>
+                                </div>
+                            ))}
                         </div>
                     ) : (
                         forms
@@ -340,8 +348,14 @@ const AdminFormManager: React.FC = () => {
             {/* Main Content: Form Editor */}
             <div className="flex-1 flex flex-col bg-white border-r border-gray-100 overflow-hidden relative">
                 {isLoadingDetails && (
-                    <div className="absolute inset-0 flex items-center justify-center bg-white/50 backdrop-blur-[2px] z-20">
-                        <Loader2 className="w-10 h-10 text-gray-900 animate-spin" />
+                    <div className="absolute inset-0 bg-white/70 backdrop-blur-[2px] z-20 p-8 space-y-4 animate-pulse">
+                        <div className="h-4 bg-gray-100 rounded w-1/4" />
+                        <div className="h-3 bg-gray-100 rounded w-1/3" />
+                        <div className="mt-6 space-y-3">
+                            {[1, 2, 3].map(i => (
+                                <div key={i} className="h-14 bg-gray-100 rounded-xl w-full" />
+                            ))}
+                        </div>
                     </div>
                 )}
                 {selectedForm ? (

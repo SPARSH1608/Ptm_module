@@ -25,10 +25,10 @@ const DashboardLayout: React.FC = () => {
 
     const allNavItems = [
         { icon: Calendar, label: 'Availability', path: '/dashboard/calendar', roles: ['TEACHER'] },
-        { icon: Users, label: 'Meets', path: '/dashboard/meets', roles: ['TEACHER'] },
+        { icon: Users, label: 'Meets', path: '/dashboard/meets', roles: ['ADMIN', 'TEACHER'] },
         { icon: FileText, label: 'Student Forms', path: '/dashboard/forms', roles: ['TEACHER'] },
         { icon: ClipboardList, label: 'Manage Forms', path: '/dashboard/admin/forms', roles: ['ADMIN'] },
-        { icon: Settings, label: 'Settings', path: '/dashboard/settings', roles: ['ADMIN', 'TEACHER'] },
+        { icon: Settings, label: 'Settings', path: '/dashboard/settings', roles: ['TEACHER'] },
     ];
 
     const navItems = allNavItems.filter(item => item.roles.includes(user.role));
@@ -66,8 +66,12 @@ const DashboardLayout: React.FC = () => {
                                 : "text-gray-500 hover:bg-gray-50 hover:text-gray-900 font-medium"
                         )}
                     >
-                        <item.icon className={clsx("w-4.5 h-4.5 stroke-[1.5]", ({ isActive }) => isActive ? "text-gray-900" : "text-gray-400 group-hover:text-gray-600")} />
-                        <span>{item.label}</span>
+                        {({ isActive }: { isActive: boolean }) => (
+                            <>
+                                <item.icon className={clsx("w-4.5 h-4.5 stroke-[1.5]", isActive ? "text-gray-900" : "text-gray-400 group-hover:text-gray-600")} />
+                                <span>{item.label}</span>
+                            </>
+                        )}
                     </NavLink>
                 ))}
             </nav>

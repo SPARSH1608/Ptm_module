@@ -97,6 +97,8 @@ model Teacher {
   name  String
   email String @unique
   phone String?
+  lmsId String? @unique
+
 
   centerId Int?
   center   Center? @relation(fields: [centerId], references: [id])
@@ -185,8 +187,9 @@ model Meeting {
 
   status MeetingStatus @default(SCHEDULED)
 
-  providerUsed Provider?
-  joinUrl     String?
+  providerUsed    Provider?
+  joinUrl         String?
+  zoomMeetingId   String?
 
   notes String?
 

@@ -3,21 +3,98 @@ import prisma from '../config/prisma';
 import { SlotStatus, MeetingStatus, Provider } from '@prisma/client';
 
 export const bookSlot = async (req: Request, res: Response) => {
-    const { slotId, studentId, teacherId, responses } = req.body;
+    const { slotId, studentId: lmsUserId, studentName, teacherId: bodyTeacherId, responses } = req.body;
 
     try {
+        // Pre-fetch slot with teacher and batches (batches needed for student auto-creation)
+        const slotPrecheck = await prisma.slot.findUnique({
+            where: { id: slotId },
+            include: { teacher: true, batches: true }
+        });
+
+        if (!slotPrecheck || slotPrecheck.deletedAt) {
+            return res.status(400).json({ error: "Slot not found" });
+        }
+
+        // Past slot check - reject immediately if the slot time has already passed
+        if (new Date(slotPrecheck.startAt) <= new Date()) {
+            return res.status(400).json({ error: "Cannot book a slot that has already passed" });
+        }
+
+        if (slotPrecheck.status !== SlotStatus.AVAILABLE) {
+            return res.status(400).json({ error: "Slot is no longer available" });
+        }
+
+        const teacherId = bodyTeacherId || slotPrecheck.teacherId;
+
+        // Auto-create student if not exists (upsert by LMS userId).
+        // batchId is derived from the slot so we can register the student on first booking.
+        const batchId = slotPrecheck.batches[0]?.id;
+        if (!batchId) {
+            return res.status(400).json({ error: "Slot has no associated batch. Please contact support." });
+        }
+
+        const studentRecord = await prisma.student.upsert({
+            where: { userId: String(lmsUserId) },
+            update: {},
+            create: {
+                userId: String(lmsUserId),
+                rollNumber: String(lmsUserId),
+                name: studentName || String(lmsUserId),
+                batchId
+            }
+        });
+
+        const studentId = studentRecord.id;
+
+        // Resolve which provider this teacher uses and create the meeting link BEFORE
+        // the DB transaction — network calls must not run inside a Prisma transaction
+        // (causes P2028 timeout on the Neon pooler).
+        const providerSetting = await prisma.teacherProviderSetting.findUnique({
+            where: { teacherId }
+        });
+        const provider = providerSetting?.defaultProvider ?? Provider.GOOGLE_MEET;
+
+        const meetingMeta = {
+            summary: `PTM: ${slotPrecheck.teacher?.name} & ${studentRecord?.name}`,
+            startAt: new Date(slotPrecheck.startAt),
+            endAt: new Date(slotPrecheck.endAt),
+        };
+
+        let joinUrl = "https://meet.google.com/abc-defg-hij"; // fallback mock
+        let zoomMeetingId: string | null = null;
+        try {
+            if (provider === Provider.ZOOM) {
+                const { createZoomMeeting } = require("../services/zoomMeetingService");
+                const result = await createZoomMeeting(teacherId, meetingMeta);
+                if (result) { joinUrl = result.joinUrl; zoomMeetingId = result.zoomMeetingId; }
+            } else {
+                const { createMeetLink } = require("../services/googleMeetService");
+                const link = await createMeetLink(teacherId, meetingMeta);
+                if (link) joinUrl = link;
+            }
+        } catch (err) {
+            console.warn(`Failed to create ${provider} link, using fallback:`, err);
+        }
+
+        // DB transaction - pure DB operations only, no network calls.
         const result = await prisma.$transaction(async (tx) => {
-            // 1. Check if slot is still available
+            // Re-check slot inside transaction (definitive concurrency guard)
             const slot = await tx.slot.findUnique({
                 where: { id: slotId },
                 include: { availability: true }
             });
 
             if (!slot || slot.status !== SlotStatus.AVAILABLE || slot.deletedAt) {
-                throw new Error('Slot is no longer available');
+                throw new Error("Slot is no longer available");
             }
 
-            // Validation 1: Student can't book two meetings with same teacher in future
+            // Past slot re-check inside transaction (guards against race conditions)
+            if (new Date(slot.startAt) <= new Date()) {
+                throw new Error("Cannot book a slot that has already passed");
+            }
+
+            // Validation 1: Student cannot book two meetings with same teacher in future
             const existingFutureMeeting = await tx.meeting.findFirst({
                 where: {
                     studentId,
@@ -27,10 +104,10 @@ export const bookSlot = async (req: Request, res: Response) => {
             });
 
             if (existingFutureMeeting) {
-                throw new Error('You already have an upcoming meeting with this teacher. Please complete it first.');
+                throw new Error("You already have an upcoming meeting with this teacher. Please complete it first.");
             }
 
-            // Validation 2: Student can’t book two or more meeting in same time slot
+            // Validation 2: Student cannot book two or more meetings in same time slot
             const overlappingMeeting = await tx.meeting.findFirst({
                 where: {
                     studentId,
@@ -43,67 +120,68 @@ export const bookSlot = async (req: Request, res: Response) => {
             });
 
             if (overlappingMeeting) {
-                throw new Error('You already have another meeting scheduled during this time slot.');
+                throw new Error("You already have another meeting scheduled during this time slot.");
             }
 
-            // 2. Create Meeting
+            // Create Meeting
             const meeting = await tx.meeting.create({
                 data: {
                     slotId,
                     studentId,
                     teacherId,
                     status: MeetingStatus.SCHEDULED,
-                    providerUsed: Provider.GOOGLE_MEET, // Default
-                    joinUrl: 'https://meet.google.com/abc-defg-hij', // Mock
+                    providerUsed: provider,
+                    joinUrl,
+                    zoomMeetingId,
                 }
             });
 
-            // 3. Update Slot Status
+            // Update Slot Status
             await tx.slot.update({
                 where: { id: slotId },
                 data: { status: SlotStatus.BOOKED }
             });
 
-            // 4. Handle Form Responses if any
-            if (responses && Object.keys(responses).length > 0) {
-                const activeForm = await tx.form.findFirst({
-                    where: { status: 'ACTIVE' }
+            // Handle Form Responses
+            const activeForm = await tx.form.findFirst({
+                where: { status: "ACTIVE" }
+            });
+
+            if (activeForm) {
+                if (!responses || Object.keys(responses).length === 0) {
+                    throw new Error("Please fill out the required form before booking.");
+                }
+
+                const submission = await tx.formSubmission.create({
+                    data: {
+                        meetingId: meeting.id,
+                        formId: activeForm.id
+                    }
                 });
 
-                if (activeForm) {
-                    const submission = await tx.formSubmission.create({
-                        data: {
-                            meetingId: meeting.id,
-                            formId: activeForm.id
-                        }
-                    });
+                const answerData = Object.entries(responses as Record<string, any>).map(([formQuestionId, value]) => ({
+                    submissionId: submission.id,
+                    formQuestionId: parseInt(formQuestionId),
+                    answerText: String(value),
+                }));
 
-                    // Create answers
-                    // responses is a map: { formQuestionId: value }
-                    const answerData = Object.entries(responses as Record<string, any>).map(([formQuestionId, value]) => ({
-                        submissionId: submission.id,
-                        formQuestionId: parseInt(formQuestionId),
-                        answerText: String(value),
-                    }));
-
-                    await tx.formAnswer.createMany({
-                        data: answerData
-                    });
-                }
+                await tx.formAnswer.createMany({
+                    data: answerData
+                });
             }
 
             return meeting;
-        });
+        }, { timeout: 10000 });
 
         res.status(201).json(result);
     } catch (error: any) {
-        console.error('Booking error:', error);
-        res.status(400).json({ error: error.message || 'Failed to book slot' });
+        console.error("Booking error:", error);
+        res.status(400).json({ error: error.message || "Failed to book slot" });
     }
 };
 
 export const getMeetingResponses = async (req: Request, res: Response) => {
-    const { meetingId } = req.params;
+    const { id: meetingId } = req.params;
     try {
         const responses = await prisma.formSubmission.findUnique({
             where: { meetingId: parseInt(meetingId as string) },
@@ -120,7 +198,7 @@ export const getMeetingResponses = async (req: Request, res: Response) => {
         });
         res.json(responses);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch responses' });
+        res.status(500).json({ error: "Failed to fetch responses" });
     }
 };
 
@@ -148,12 +226,26 @@ export const getMeetingById = async (req: Request, res: Response) => {
         });
 
         if (!meeting) {
-            return res.status(404).json({ error: 'Meeting not found' });
+            return res.status(404).json({ error: "Meeting not found" });
         }
 
         res.json(meeting);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to fetch meeting details' });
+        res.status(500).json({ error: "Failed to fetch meeting details" });
+    }
+};
+
+export const getMeetingNotes = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    try {
+        const meeting = await prisma.meeting.findUnique({
+            where: { id: parseInt(id as string) },
+            select: { notes: true }
+        });
+        if (!meeting) return res.status(404).json({ error: "Meeting not found" });
+        res.json(meeting.notes ?? null);
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch notes" });
     }
 };
 
@@ -168,22 +260,31 @@ export const updateMeetingNotes = async (req: Request, res: Response) => {
         });
         res.json(meeting);
     } catch (error) {
-        res.status(500).json({ error: 'Failed to update meeting notes' });
+        res.status(500).json({ error: "Failed to update meeting notes" });
     }
 };
 
 export const getMyMeetings = async (req: Request, res: Response) => {
-    const { id, role } = (req as any).user;
+    const jwtUser = (req as any).user;
+    const id = jwtUser?.id ?? (req.headers["userid"] ? parseInt(req.headers["userid"] as string) : null);
+    const role = jwtUser?.role ?? "STUDENT";
+
+    if (!id) {
+        res.status(400).json({ error: "User identity required" });
+        return;
+    }
     const { batchId, courseId, centerId, teacherId } = req.query;
 
     try {
         let where: any = {};
 
-        if (role === 'TEACHER') {
+        if (role === "TEACHER") {
             where.teacherId = id;
-        } else if (role === 'STUDENT') {
-            where.studentId = id;
-        } else if (role === 'ADMIN') {
+        } else if (role === "STUDENT") {
+            // id here is the LMS userId (from header), not the internal Student.id.
+            // Filter via the student relation so Prisma JOINs on Student.userId.
+            where.student = { userId: String(id) };
+        } else if (role === "ADMIN") {
             if (teacherId) where.teacherId = parseInt(teacherId as string);
         }
 
@@ -214,13 +315,112 @@ export const getMyMeetings = async (req: Request, res: Response) => {
                 },
                 teacher: true
             },
-            orderBy: { slot: { startAt: 'desc' } }
+            orderBy: { slot: { startAt: "desc" } }
         });
         res.json(meetings);
     } catch (error) {
-        console.error('Fetch meetings error:', error);
-        res.status(500).json({ error: 'Failed to fetch meetings' });
+        console.error("Fetch meetings error:", error);
+        res.status(500).json({ error: "Failed to fetch meetings" });
     }
 };
 
+export const getStudentTeachers = async (req: Request, res: Response) => {
+    const { id: studentId } = (req as any).user;
+    try {
+        const student = await prisma.student.findUnique({
+            where: { id: studentId },
+            include: {
+                batch: {
+                    include: {
+                        teacherBatches: {
+                            include: { teacher: true }
+                        }
+                    }
+                }
+            }
+        });
 
+        if (!student) return res.status(404).json({ error: "Student not found" });
+
+        const teachers = student.batch.teacherBatches.map(tb => tb.teacher);
+        res.json(teachers);
+    } catch (error) {
+        res.status(500).json({ error: "Failed to fetch teachers" });
+    }
+};
+
+export const cancelMeeting = async (req: Request, res: Response) => {
+    const { id } = req.params;
+    const meetingId = parseInt(id as string);
+
+    try {
+        const meeting = await prisma.meeting.findUnique({
+            where: { id: meetingId }
+        });
+
+        if (!meeting) {
+            return res.status(404).json({ error: "Meeting not found" });
+        }
+
+        if (meeting.status === MeetingStatus.CANCELLED) {
+            return res.status(400).json({ error: "Meeting is already cancelled" });
+        }
+
+        await prisma.meeting.update({
+            where: { id: meetingId },
+            data: { status: MeetingStatus.CANCELLED }
+        });
+
+        await prisma.slot.update({
+            where: { id: meeting.slotId },
+            data: { status: SlotStatus.AVAILABLE }
+        });
+
+        res.json({ message: "Meeting cancelled successfully" });
+    } catch (error: any) {
+        console.error("Cancel meeting error:", error);
+        res.status(400).json({ error: error.message || "Failed to cancel meeting" });
+    }
+};
+
+export const updateFormSubmission = async (req: Request, res: Response) => {
+    const { meetingId } = req.params;
+    const { responses } = req.body;
+    const mId = parseInt(meetingId as string);
+
+    try {
+        const { canEditSubmission } = require("../services/meetingService");
+        const allowed = await canEditSubmission(mId);
+
+        if (!allowed) {
+            return res.status(403).json({ error: "Form cannot be edited within 1 hour of the meeting" });
+        }
+
+        await prisma.$transaction(async (tx) => {
+            const submission = await tx.formSubmission.findUnique({
+                where: { meetingId: mId }
+            });
+
+            if (!submission) throw new Error("Submission not found");
+
+            await tx.formAnswer.deleteMany({
+                where: { submissionId: submission.id }
+            });
+
+            const answerData = Object.entries(responses as Record<string, any>).map(([formQuestionId, value]) => ({
+                submissionId: submission.id,
+                formQuestionId: parseInt(formQuestionId),
+                answerText: String(value),
+            }));
+
+            await tx.formAnswer.createMany({
+                data: answerData
+            });
+        });
+
+        res.json({ message: "Form submission updated successfully" });
+    } catch (error: any) {
+        console.error("Update submission error:", error);
+        res.status(400).json({ error: error.message || "Failed to update submission" });
+    }
+};

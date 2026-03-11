@@ -48,9 +48,119 @@ export const getCourses = async (req: Request, res: Response) => {
 export const getProfile = async (req: Request, res: Response) => {
     const teacherId = (req as any).user.id;
     try {
-        const teacher = await prisma.teacher.findUnique({ where: { id: teacherId } });
+        const teacher = await prisma.teacher.findUnique({
+            where: { id: teacherId },
+            include: { providerSetting: true }
+        });
         res.json(teacher);
     } catch (error) {
         res.status(500).json({ error: 'Failed to fetch profile' });
     }
-}
+};
+
+export const getGoogleAuthUrl = async (req: Request, res: Response) => {
+    const teacherId = (req as any).user.id;
+    try {
+        const { generateAuthUrl } = require('../services/googleMeetService');
+        const url = generateAuthUrl(teacherId);
+        res.json({ url });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to generate Auth URL' });
+    }
+};
+
+export const saveGoogleTokens = async (req: Request, res: Response) => {
+    const teacherId = (req as any).user.id;
+    const { code } = req.body;
+
+    try {
+        const { getTokensFromCode } = require('../services/googleMeetService');
+        const tokens = await getTokensFromCode(code);
+
+        await prisma.teacherProviderSetting.upsert({
+            where: { teacherId },
+            update: {
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+                defaultProvider: 'GOOGLE_MEET'
+            },
+            create: {
+                teacherId,
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: tokens.expiry_date ? new Date(tokens.expiry_date) : null,
+                defaultProvider: 'GOOGLE_MEET'
+            }
+        });
+
+        res.json({ message: 'Google Calendar connected successfully' });
+    } catch (error) {
+        console.error('Save Google Tokens Error:', error);
+        res.status(500).json({ error: 'Failed to connect Google Calendar' });
+    }
+};
+
+export const getZoomAuthUrl = async (req: Request, res: Response) => {
+    const teacherId = (req as any).user.id;
+    try {
+        const { generateZoomAuthUrl } = require('../services/zoomMeetingService');
+        const url = generateZoomAuthUrl(teacherId);
+        res.json({ url });
+    } catch (error) {
+        res.status(500).json({ error: 'Failed to generate Zoom Auth URL' });
+    }
+};
+
+// Public GET handler — called by Zoom's browser redirect (no JWT available)
+// teacherId comes from the `state` param we set in generateZoomAuthUrl
+export const handleZoomOAuthCallback = async (req: Request, res: Response) => {
+    const { code, state, error: zoomError } = req.query;
+    const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
+
+    console.log('Zoom callback received. Query params:', req.query);
+
+    if (zoomError) {
+        console.error('Zoom returned an error:', zoomError);
+        return res.redirect(`${frontendUrl}?zoom=error`);
+    }
+
+    if (!code || !state) {
+        console.error('Zoom callback missing code or state. Received:', { code, state });
+        return res.redirect(`${frontendUrl}?zoom=error`);
+    }
+
+    const { resolveZoomState } = require('../services/zoomMeetingService');
+    const teacherId = resolveZoomState(state as string);
+    if (!teacherId) {
+        console.error('Zoom callback: state token invalid or expired:', state);
+        return res.redirect(`${frontendUrl}?zoom=error`);
+    }
+
+    try {
+        const { getZoomTokensFromCode } = require('../services/zoomMeetingService');
+        const tokens = await getZoomTokensFromCode(code as string);
+
+        await prisma.teacherProviderSetting.upsert({
+            where: { teacherId },
+            update: {
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+                defaultProvider: 'ZOOM'
+            },
+            create: {
+                teacherId,
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: tokens.expires_in ? new Date(Date.now() + tokens.expires_in * 1000) : null,
+                defaultProvider: 'ZOOM'
+            }
+        });
+
+        res.redirect(`${frontendUrl}?zoom=connected`);
+    } catch (error) {
+        console.error('Zoom OAuth callback error:', error);
+        res.redirect(`${frontendUrl}?zoom=error`);
+    }
+};

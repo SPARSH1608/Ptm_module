@@ -14,6 +14,7 @@ const LoginPage: React.FC = () => {
     const [password, setPassword] = useState('');
     const [phone, setPhone] = useState('');
     const [otp, setOtp] = useState(['', '', '', '', '', '']);
+    const [sessionId, setSessionId] = useState('');
     const [showOtp, setShowOtp] = useState(false);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -46,11 +47,20 @@ const LoginPage: React.FC = () => {
         e.preventDefault();
         setError('');
         setLoading(true);
-        // Simulate OTP sending
-        setTimeout(() => {
+
+        try {
+            const response = await api.post('/auth/otp/send', {
+                phoneNumber: phone
+            });
+
+            setSessionId(response.data.sessionId);
             setShowOtp(true);
+        } catch (error: any) {
+            console.error('Failed to send OTP:', error);
+            setError(error.response?.data?.error || 'Failed to send verification code. Please try again.');
+        } finally {
             setLoading(false);
-        }, 1000);
+        }
     };
 
     const handleVerifyOtp = async (e: React.FormEvent) => {
@@ -60,8 +70,9 @@ const LoginPage: React.FC = () => {
 
         try {
             const enteredOtp = otp.join('');
-            const response = await api.post('/auth/login', {
+            const response = await api.post('/auth/otp/verify', {
                 phoneNumber: phone,
+                sessionId: sessionId,
                 otp: enteredOtp
             });
 

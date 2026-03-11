@@ -4,11 +4,6 @@ import clsx from 'clsx';
 import { motion } from 'framer-motion';
 import api from '../services/api';
 
-interface UserProfile {
-    email: string;
-    // Add other fields as needed based on API response
-}
-
 const SectionHeader = ({ title, description }: { title: string, description: string }) => (
     <div className="mb-4">
         <h2 className="text-base font-semibold text-gray-900">{title}</h2>
@@ -18,12 +13,35 @@ const SectionHeader = ({ title, description }: { title: string, description: str
 
 const SettingsView: React.FC = () => {
     const [selectedProvider, setSelectedProvider] = useState<'google_meet' | 'zoom'>('google_meet');
-    const [isConnected, setIsConnected] = useState(false);
-    const [profile, setProfile] = useState<UserProfile | null>(null);
+    const [profile, setProfile] = useState<any>(null);
+    const [profileLoading, setProfileLoading] = useState(true);
+
+    const fetchProfile = () => {
+        setProfileLoading(true);
+        api.get('/teacher/profile')
+            .then(res => setProfile(res.data))
+            .catch(console.error)
+            .finally(() => setProfileLoading(false));
+    };
 
     React.useEffect(() => {
-        api.get('/teacher/profile').then(res => setProfile(res.data)).catch(console.error);
+        fetchProfile();
     }, []);
+
+    const handleConnectProvider = async () => {
+        if (selectedProvider === 'google_meet') {
+            try {
+                const res = await api.get('/teacher/google-auth-url');
+                if (res.data.url) {
+                    window.location.href = res.data.url;
+                }
+            } catch (error) {
+                console.error('Error getting auth URL:', error);
+            }
+        }
+    };
+
+    const isGoogleConnected = !!(profile as any)?.providerSetting?.refreshToken;
 
     const providers = [
         {
@@ -31,19 +49,23 @@ const SettingsView: React.FC = () => {
             name: 'Google Meet',
             description: 'Sync your calendar and generate meet links automatically.',
             icon: Video,
-            connectedText: profile ? `Connected as ${profile.email}` : 'Connect account'
+            connectedText: isGoogleConnected ? `Connected as ${profile?.email}` : 'Not connected',
+            connected: isGoogleConnected
         },
         {
             id: 'zoom',
             name: 'Zoom',
             description: 'Integrate your Zoom account for video conferences.',
             icon: Video,
-            connectedText: 'Connected as user@zoom.us'
+            connectedText: 'Not connected',
+            connected: false
         }
     ];
 
+    const currentProvider = providers.find(p => p.id === selectedProvider);
+
     return (
-        <div className="max-w-2xl mx-auto space-y-12 py-6">
+        <div className="max-w-2xl mx-auto space-y-12 px-8 py-6">
             <div>
                 <h1 className="text-2xl font-bold text-gray-900 font-display tracking-tight mb-2">Settings</h1>
                 <p className="text-gray-500">Manage your integrations and preferences</p>
@@ -56,7 +78,18 @@ const SettingsView: React.FC = () => {
                 />
 
                 <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden divide-y divide-gray-100">
-                    {providers.map((provider) => (
+                    {profileLoading ? (
+                        [1, 2].map(i => (
+                            <div key={i} className="p-4 flex items-center gap-4 animate-pulse">
+                                <div className="w-10 h-10 rounded-lg bg-gray-100 shrink-0" />
+                                <div className="flex-1 space-y-2">
+                                    <div className="h-3 bg-gray-100 rounded w-24" />
+                                    <div className="h-2.5 bg-gray-100 rounded w-48" />
+                                    <div className="h-2.5 bg-gray-100 rounded w-32" />
+                                </div>
+                            </div>
+                        ))
+                    ) : providers.map((provider) => (
                         <div
                             key={provider.id}
                             onClick={() => setSelectedProvider(provider.id as 'google_meet' | 'zoom')}
@@ -75,9 +108,14 @@ const SettingsView: React.FC = () => {
                                 <div>
                                     <div className="flex items-center gap-2">
                                         <h3 className="text-sm font-semibold text-gray-900">{provider.name}</h3>
-                                        {selectedProvider === provider.id && (
+                                        {provider.connected && (
+                                            <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-green-50 text-green-700 border border-green-100">
+                                                Connected
+                                            </span>
+                                        )}
+                                        {selectedProvider === provider.id && !provider.connected && (
                                             <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-medium bg-primary-50 text-primary-700 border border-primary-100">
-                                                Active
+                                                Selected
                                             </span>
                                         )}
                                     </div>
@@ -99,15 +137,16 @@ const SettingsView: React.FC = () => {
 
                 <div className="mt-4 flex justify-end">
                     <button
-                        onClick={() => setIsConnected(!isConnected)}
+                        onClick={handleConnectProvider}
+                        disabled={currentProvider?.connected}
                         className={clsx(
                             "px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm border",
-                            isConnected
-                                ? "bg-white border-gray-200 text-gray-700 hover:bg-gray-50"
+                            currentProvider?.connected
+                                ? "bg-white border-gray-200 text-gray-400 cursor-not-allowed"
                                 : "bg-gray-900 text-white border-transparent hover:bg-gray-800"
                         )}
                     >
-                        {isConnected ? "Disconnect Account" : "Connect Provider"}
+                        {currentProvider?.connected ? "Account Connected" : `Connect ${currentProvider?.name}`}
                     </button>
                 </div>
             </section >
