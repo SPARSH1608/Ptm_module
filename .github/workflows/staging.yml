@@ -1,0 +1,35 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to staging
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/servers/ptm-staging
+
+            git pull origin main
+
+            # Backend
+            cd server
+            npm install
+            npx prisma generate
+
+            # Frontend
+            cd ../client
+            npm install
+            npm run build
+            cp -r dist/. ~/frontends/ptm-staging/
+
+            # Restart backend
+            pm2 restart ptm-server-staging

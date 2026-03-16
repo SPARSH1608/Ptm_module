@@ -1,0 +1,35 @@
+name: Deploy Production
+
+on:
+  push:
+    branches: [master]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy to production
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_PRIVATE_KEY }}
+          script: |
+            set -e
+            cd ~/servers/ptm-prod
+
+            git pull origin master
+
+            # Backend
+            cd server
+            npm install
+            npx prisma generate
+
+            # Frontend
+            cd ../client
+            npm install
+            npm run build
+            cp -r dist/. ~/frontends/ptm-prod/
+
+            # Restart backend
+            pm2 restart ptm-server-prod
