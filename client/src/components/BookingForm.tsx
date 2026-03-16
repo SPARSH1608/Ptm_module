@@ -1,20 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ChevronRight, ChevronLeft, CheckCircle2, AlertCircle } from 'lucide-react';
+import { ChevronRight, ChevronLeft, CheckCircle2/*, AlertCircle*/ } from 'lucide-react';
 import clsx from 'clsx';
 import api from '../services/api';
 
-interface Question {
-    id: number;
-    title: string;
-    type: 'TEXT' | 'DROPDOWN';
-    options?: string[];
-}
+// interface Question {
+//     id: number;
+//     title: string;
+//     type: 'TEXT' | 'DROPDOWN';
+//     options?: string[];
+// }
 
-interface FormQuestion {
-    id: number;
-    question: Question;
-}
+// interface FormQuestion {
+//     id: number;
+//     question: Question;
+// }
 
 interface BookingFormProps {
     onComplete: (answers: any) => void;
