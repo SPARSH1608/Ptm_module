@@ -22,13 +22,14 @@ jobs:
 
             # Backend
             cd server
+            [ -f .env ] || { echo "ERROR: .env missing in staging server. Copy .env.example and fill values."; exit 1; }
             npm install
             npx prisma generate
 
             # Frontend
             cd ../client
             npm install
-            npm run build
+            npm run build -- --mode staging
             cp -r dist/. ~/frontends/ptm-staging/
 
             # Restart backend

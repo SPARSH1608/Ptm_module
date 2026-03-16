@@ -22,6 +22,7 @@ jobs:
 
             # Backend
             cd server
+            [ -f .env ] || { echo "ERROR: .env missing in prod server. Copy .env.example and fill values."; exit 1; }
             npm install
             npx prisma generate
 
