@@ -12,9 +12,10 @@ const SectionHeader = ({ title, description }: { title: string, description: str
 );
 
 const SettingsView: React.FC = () => {
-    const [selectedProvider, setSelectedProvider] = useState<'google_meet' | 'zoom'>('google_meet');
+    const [selectedProvider, setSelectedProvider] = useState</* 'google_meet' | */ 'zoom'>('zoom');
     const [profile, setProfile] = useState<any>(null);
     const [profileLoading, setProfileLoading] = useState(true);
+    const zoomStatus = new URLSearchParams(window.location.search).get('zoom');
 
     const fetchProfile = () => {
         setProfileLoading(true);
@@ -29,36 +30,51 @@ const SettingsView: React.FC = () => {
     }, []);
 
     const handleConnectProvider = async () => {
-        if (selectedProvider === 'google_meet') {
+        // Google Meet connect — commented out (Zoom only)
+        // if (selectedProvider === 'google_meet') {
+        //     try {
+        //         const res = await api.get('/teacher/google-auth-url');
+        //         if (res.data.url) {
+        //             window.location.href = res.data.url;
+        //         }
+        //     } catch (error) {
+        //         console.error('Error getting auth URL:', error);
+        //     }
+        // }
+        if (selectedProvider === 'zoom') {
             try {
-                const res = await api.get('/teacher/google-auth-url');
+                const res = await api.get('/teacher/zoom-auth-url');
                 if (res.data.url) {
                     window.location.href = res.data.url;
                 }
             } catch (error) {
-                console.error('Error getting auth URL:', error);
+                console.error('Error getting Zoom auth URL:', error);
             }
         }
     };
 
-    const isGoogleConnected = !!(profile as any)?.providerSetting?.refreshToken;
+    const defaultProvider = (profile as any)?.providerSetting?.defaultProvider;
+    const hasToken = !!(profile as any)?.providerSetting?.refreshToken;
+    // const isGoogleConnected = hasToken && defaultProvider === 'GOOGLE_MEET';
+    const isZoomConnected = hasToken && defaultProvider === 'ZOOM';
 
     const providers = [
-        {
-            id: 'google_meet',
-            name: 'Google Meet',
-            description: 'Sync your calendar and generate meet links automatically.',
-            icon: Video,
-            connectedText: isGoogleConnected ? `Connected as ${profile?.email}` : 'Not connected',
-            connected: isGoogleConnected
-        },
+        // Google Meet — commented out (Zoom only)
+        // {
+        //     id: 'google_meet',
+        //     name: 'Google Meet',
+        //     description: 'Sync your calendar and generate meet links automatically.',
+        //     icon: Video,
+        //     connectedText: isGoogleConnected ? `Connected as ${profile?.email}` : 'Not connected',
+        //     connected: isGoogleConnected
+        // },
         {
             id: 'zoom',
             name: 'Zoom',
             description: 'Integrate your Zoom account for video conferences.',
             icon: Video,
-            connectedText: 'Not connected',
-            connected: false
+            connectedText: isZoomConnected ? `Connected as ${profile?.email}` : 'Not connected',
+            connected: isZoomConnected
         }
     ];
 
@@ -70,6 +86,17 @@ const SettingsView: React.FC = () => {
                 <h1 className="text-2xl font-bold text-gray-900 font-display tracking-tight mb-2">Settings</h1>
                 <p className="text-gray-500">Manage your integrations and preferences</p>
             </div>
+
+            {zoomStatus === 'connected' && (
+                <div className="px-4 py-3 rounded-lg bg-green-50 border border-green-200 text-green-700 text-sm font-medium">
+                    Zoom account connected successfully.
+                </div>
+            )}
+            {zoomStatus === 'error' && (
+                <div className="px-4 py-3 rounded-lg bg-red-50 border border-red-200 text-red-700 text-sm font-medium">
+                    Failed to connect Zoom. Please try again.
+                </div>
+            )}
 
             <section>
                 <SectionHeader
@@ -92,7 +119,7 @@ const SettingsView: React.FC = () => {
                     ) : providers.map((provider) => (
                         <div
                             key={provider.id}
-                            onClick={() => setSelectedProvider(provider.id as 'google_meet' | 'zoom')}
+                            onClick={() => setSelectedProvider(provider.id as 'zoom')}
                             className={clsx(
                                 "p-4 cursor-pointer transition-colors flex items-center justify-between group",
                                 selectedProvider === provider.id ? "bg-gray-50/50" : "hover:bg-gray-50"
@@ -135,7 +162,22 @@ const SettingsView: React.FC = () => {
                     ))}
                 </div>
 
-                <div className="mt-4 flex justify-end">
+                <div className="mt-4 flex justify-end gap-2">
+                    {currentProvider?.connected && (
+                        <button
+                            onClick={async () => {
+                                try {
+                                    await api.delete('/teacher/provider');
+                                    fetchProfile();
+                                } catch (error) {
+                                    console.error('Error disconnecting provider:', error);
+                                }
+                            }}
+                            className="px-4 py-2 rounded-lg text-sm font-medium transition-all shadow-sm border border-red-200 text-red-500 hover:bg-red-50"
+                        >
+                            Disconnect
+                        </button>
+                    )}
                     <button
                         onClick={handleConnectProvider}
                         disabled={currentProvider?.connected}

@@ -100,6 +100,9 @@ export const bookSlot = async (req: Request, res: Response) => {
                     studentId,
                     teacherId,
                     status: MeetingStatus.SCHEDULED,
+                    slot: {
+                        startAt: { gt: new Date() }
+                    }
                 }
             });
 

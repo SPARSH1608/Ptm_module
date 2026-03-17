@@ -60,7 +60,7 @@ export const verifyOtp = async (req: Request, res: Response) => {
         });
 
         // 4. Generate Token
-        const token = jwt.sign({ id: teacher.id, role: 'TEACHER' }, JWT_SECRET, { expiresIn: '7d' });
+        const token = jwt.sign({ id: teacher.id, role: 'TEACHER' }, JWT_SECRET, { expiresIn: '30d' });
         res.json({ token, user: { ...teacher, role: 'TEACHER' } });
     } catch (error: any) {
         console.error('Verify OTP error:', error);
@@ -83,7 +83,7 @@ export const login = async (req: Request, res: Response) => {
                 return;
             }
 
-            const token = jwt.sign({ id: admin.id, role: 'ADMIN' }, JWT_SECRET, { expiresIn: '7d' });
+            const token = jwt.sign({ id: admin.id, role: 'ADMIN' }, JWT_SECRET, { expiresIn: '30d' });
             res.json({ token, user: { ...admin, role: 'ADMIN' } });
             return;
         }

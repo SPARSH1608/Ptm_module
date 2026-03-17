@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { getBatches, getProfile, getCourses, getGoogleAuthUrl, saveGoogleTokens, getZoomAuthUrl, handleZoomOAuthCallback } from '../controllers/teacherController';
+import { getBatches, getProfile, getCourses, getGoogleAuthUrl, saveGoogleTokens, getZoomAuthUrl, handleZoomOAuthCallback, disconnectProvider } from '../controllers/teacherController';
 import { authenticateToken } from '../middleware/auth';
 
 const router = Router();
@@ -16,5 +16,6 @@ router.get('/courses', getCourses);
 router.get('/google-auth-url', getGoogleAuthUrl);
 router.post('/google-callback', saveGoogleTokens);
 router.get('/zoom-auth-url', getZoomAuthUrl);
+router.delete('/provider', disconnectProvider);
 
 export default router;

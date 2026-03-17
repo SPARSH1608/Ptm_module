@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Plus, Clock, ChevronLeft, ChevronRight, Calendar as CalendarIcon } from 'lucide-react';
+import { Plus, Clock, ChevronLeft, ChevronRight, Calendar as CalendarIcon, Video } from 'lucide-react';
 import { format, addDays, startOfWeek, addMonths, subMonths, startOfMonth, endOfMonth, endOfWeek, isSameMonth, isSameDay } from 'date-fns';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
@@ -38,6 +38,7 @@ const CalendarView: React.FC = () => {
         id: number;
         student?: Student;
         status: 'SCHEDULED' | 'CANCELLED' | 'COMPLETED';
+        joinUrl?: string;
     }
 
     interface Course {
@@ -526,9 +527,22 @@ const CalendarView: React.FC = () => {
                                                             </button>
                                                         )}
                                                         {slot.status === 'BOOKED' && (
-                                                            <div className="p-2 bg-gray-50 rounded-lg text-gray-400">
-                                                                <Clock className="w-4 h-4" />
-                                                            </div>
+                                                            slot.meeting?.joinUrl ? (
+                                                                <a
+                                                                    href={slot.meeting.joinUrl}
+                                                                    target="_blank"
+                                                                    rel="noopener noreferrer"
+                                                                    onClick={(e) => e.stopPropagation()}
+                                                                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl text-[10px] font-bold uppercase tracking-widest text-blue-600 bg-blue-50 hover:bg-blue-100 transition-all"
+                                                                >
+                                                                    <Video className="w-3.5 h-3.5" />
+                                                                    Join
+                                                                </a>
+                                                            ) : (
+                                                                <div className="p-2 bg-gray-50 rounded-lg text-gray-400">
+                                                                    <Clock className="w-4 h-4" />
+                                                                </div>
+                                                            )
                                                         )}
                                                     </div>
                                                 </motion.div>

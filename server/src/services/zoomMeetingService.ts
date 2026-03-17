@@ -1,22 +1,20 @@
 import axios from 'axios';
-import { createHmac } from 'crypto';
+import { randomBytes } from 'crypto';
 import prisma from '../config/prisma';
 
 const ZOOM_CLIENT_ID = process.env.ZOOM_CLIENT_ID!;
 const ZOOM_CLIENT_SECRET = process.env.ZOOM_CLIENT_SECRET!;
 const ZOOM_REDIRECT_URI = process.env.ZOOM_REDIRECT_URI!;
-const STATE_SECRET = process.env.JWT_SECRET || 'supersecret';
 
 const zoomBasicAuth = () =>
     Buffer.from(`${ZOOM_CLIENT_ID}:${ZOOM_CLIENT_SECRET}`).toString('base64');
 
-// State token: base64url(<teacherId>:<expiry>) + HMAC signature
-// Survives server restarts, tamper-proof, no server-side storage needed.
+// In-memory state store: token → { teacherId, expiry }
+const stateStore = new Map<string, { teacherId: number; expiry: number }>();
+
 export const generateZoomAuthUrl = (teacherId: number): string => {
-    const expiry = Date.now() + 10 * 60 * 1000; // 10 minutes
-    const payload = `${teacherId}:${expiry}`;
-    const sig = createHmac('sha256', STATE_SECRET).update(payload).digest('hex').slice(0, 16);
-    const state = `${Buffer.from(payload).toString('base64url')}.${sig}`;
+    const state = randomBytes(16).toString('hex');
+    stateStore.set(state, { teacherId, expiry: Date.now() + 10 * 60 * 1000 });
 
     const params = new URLSearchParams({
         response_type: 'code',
@@ -27,23 +25,12 @@ export const generateZoomAuthUrl = (teacherId: number): string => {
     return `https://zoom.us/oauth/authorize?${params.toString()}`;
 };
 
-// Verifies the HMAC-signed state token and returns teacherId, or null if invalid/expired
 export const resolveZoomState = (state: string): number | null => {
-    try {
-        const [payloadB64, sig] = state.split('.');
-        if (!payloadB64 || !sig) return null;
-
-        const payload = Buffer.from(payloadB64, 'base64url').toString();
-        const expectedSig = createHmac('sha256', STATE_SECRET).update(payload).digest('hex').slice(0, 16);
-        if (sig !== expectedSig) return null;
-
-        const [teacherIdStr, expiryStr] = payload.split(':');
-        if (parseInt(expiryStr) < Date.now()) return null;
-
-        return parseInt(teacherIdStr);
-    } catch {
-        return null;
-    }
+    const entry = stateStore.get(state);
+    if (!entry) return null;
+    stateStore.delete(state);
+    if (entry.expiry < Date.now()) return null;
+    return entry.teacherId;
 };
 
 export const getZoomTokensFromCode = async (code: string) => {

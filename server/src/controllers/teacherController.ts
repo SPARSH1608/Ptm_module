@@ -106,6 +106,12 @@ export const getZoomAuthUrl = async (req: Request, res: Response) => {
     try {
         const { generateZoomAuthUrl } = require('../services/zoomMeetingService');
         const url = generateZoomAuthUrl(teacherId);
+        // Cookie fallback: Zoom sometimes doesn't echo back state param
+        res.cookie('zoom_oauth_teacher', String(teacherId), {
+            httpOnly: true,
+            maxAge: 10 * 60 * 1000, // 10 minutes
+            sameSite: 'lax',
+        });
         res.json({ url });
     } catch (error) {
         res.status(500).json({ error: 'Failed to generate Zoom Auth URL' });
@@ -114,6 +120,18 @@ export const getZoomAuthUrl = async (req: Request, res: Response) => {
 
 // Public GET handler — called by Zoom's browser redirect (no JWT available)
 // teacherId comes from the `state` param we set in generateZoomAuthUrl
+export const disconnectProvider = async (req: Request, res: Response) => {
+    const teacherId = (req as any).user.id;
+
+    try {
+        await prisma.teacherProviderSetting.deleteMany({ where: { teacherId } });
+        res.json({ success: true });
+    } catch (error) {
+        console.error('Disconnect provider error:', error);
+        res.status(500).json({ error: 'Failed to disconnect provider' });
+    }
+};
+
 export const handleZoomOAuthCallback = async (req: Request, res: Response) => {
     const { code, state, error: zoomError } = req.query;
     const frontendUrl = process.env.FRONTEND_URL || 'http://localhost:5173';
@@ -122,20 +140,34 @@ export const handleZoomOAuthCallback = async (req: Request, res: Response) => {
 
     if (zoomError) {
         console.error('Zoom returned an error:', zoomError);
-        return res.redirect(`${frontendUrl}?zoom=error`);
+        return res.redirect(`${frontendUrl}/dashboard/settings?zoom=error`);
     }
 
-    if (!code || !state) {
-        console.error('Zoom callback missing code or state. Received:', { code, state });
-        return res.redirect(`${frontendUrl}?zoom=error`);
+    if (!code) {
+        console.error('Zoom callback missing code. Received:', { code, state });
+        return res.redirect(`${frontendUrl}/dashboard/settings?zoom=error`);
     }
 
-    const { resolveZoomState } = require('../services/zoomMeetingService');
-    const teacherId = resolveZoomState(state as string);
+    let teacherId: number | null = null;
+
+    // Primary: resolve from state param
+    if (state) {
+        const { resolveZoomState } = require('../services/zoomMeetingService');
+        teacherId = resolveZoomState(state as string);
+    }
+
+    // Fallback: read from cookie (Zoom sometimes doesn't echo state)
+    if (!teacherId && req.cookies?.zoom_oauth_teacher) {
+        const parsed = parseInt(req.cookies.zoom_oauth_teacher);
+        if (!isNaN(parsed)) teacherId = parsed;
+    }
+
     if (!teacherId) {
-        console.error('Zoom callback: state token invalid or expired:', state);
-        return res.redirect(`${frontendUrl}?zoom=error`);
+        console.error('Zoom callback: could not resolve teacherId from state or cookie');
+        return res.redirect(`${frontendUrl}/dashboard/settings?zoom=error`);
     }
+
+    res.clearCookie('zoom_oauth_teacher');
 
     try {
         const { getZoomTokensFromCode } = require('../services/zoomMeetingService');
@@ -158,9 +190,9 @@ export const handleZoomOAuthCallback = async (req: Request, res: Response) => {
             }
         });
 
-        res.redirect(`${frontendUrl}?zoom=connected`);
+        res.redirect(`${frontendUrl}/dashboard/settings?zoom=connected`);
     } catch (error) {
         console.error('Zoom OAuth callback error:', error);
-        res.redirect(`${frontendUrl}?zoom=error`);
+        res.redirect(`${frontendUrl}/dashboard/settings?zoom=error`);
     }
 };

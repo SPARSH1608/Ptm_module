@@ -1,5 +1,6 @@
 import express from 'express';
 import cors from 'cors';
+import cookieParser from 'cookie-parser';
 import dotenv from 'dotenv';
 import authRoutes from './routes/auth';
 import teacherRoutes from './routes/teacher';
@@ -26,6 +27,7 @@ app.use(cors({
 // Webhook must use raw body BEFORE express.json() for HMAC signature verification
 app.use('/api/webhooks', express.raw({ type: 'application/json' }), webhookRoutes);
 
+app.use(cookieParser());
 app.use(express.json());
 
 app.use('/api/auth', authRoutes);
