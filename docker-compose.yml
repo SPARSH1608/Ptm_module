@@ -1,0 +1,30 @@
+services:
+  postgres-staging:
+    image: postgres:16-alpine
+    container_name: ptm-postgres-staging
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ptm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_STAGING}
+      POSTGRES_DB: ptm_staging
+    volumes:
+      - postgres_staging_data:/var/lib/postgresql/data
+    ports:
+      - "5433:5432"   # host:container — staging on 5433 to avoid conflict with prod
+
+  postgres-prod:
+    image: postgres:16-alpine
+    container_name: ptm-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ptm
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD_PROD}
+      POSTGRES_DB: ptm_prod
+    volumes:
+      - postgres_prod_data:/var/lib/postgresql/data
+    ports:
+      - "5432:5432"   # prod on default 5432
+
+volumes:
+  postgres_staging_data:
+  postgres_prod_data:
