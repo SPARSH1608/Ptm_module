@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { bookSlot, getMeetingResponses, getMeetingById, getMeetingNotes, updateMeetingNotes, getMyMeetings, getStudentTeachers, updateFormSubmission, cancelMeeting } from '../controllers/meetingController';
+import { bookSlot, getMeetingResponses, getMeetingById, getMeetingNotes, updateMeetingNotes, getMyMeetings, getStudentMeetings, getStudentTeachers, updateFormSubmission, cancelMeeting } from '../controllers/meetingController';
 import { authenticateToken, optionalAuth } from '../middleware/auth';
 
 const router = Router();
@@ -9,6 +9,7 @@ const router = Router();
 //               falls through silently when absent (student userid-header flow)
 router.post('/book', bookSlot);
 router.delete('/:id', cancelMeeting);
+router.get('/student', getStudentMeetings);
 router.get('/', optionalAuth, getMyMeetings);
 router.get('/:id/responses', optionalAuth, getMeetingResponses);
 router.get('/:id/notes', optionalAuth, getMeetingNotes);

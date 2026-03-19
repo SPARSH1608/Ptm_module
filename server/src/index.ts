@@ -9,6 +9,7 @@ import formRoutes from './routes/form';
 import meetingRoutes from './routes/meeting';
 import masterRoutes from './routes/master';
 import webhookRoutes from './routes/webhook';
+import notificationRoutes from './routes/notification';
 
 
 
@@ -36,6 +37,7 @@ app.use('/api/availability', availabilityRoutes);
 app.use('/api/admin', formRoutes);
 app.use('/api/meetings', meetingRoutes);
 app.use('/api/master', masterRoutes);
+app.use('/api/notifications', notificationRoutes);
 
 
 

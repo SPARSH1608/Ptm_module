@@ -45,6 +45,11 @@ const SettingsView: React.FC = () => {
             try {
                 const res = await api.get('/teacher/zoom-auth-url');
                 if (res.data.url) {
+                    // Set cookie client-side so the server receives it on the Zoom callback redirect.
+                    // Server-side Set-Cookie is dropped by browsers on XHR without withCredentials.
+                    if (profile?.id) {
+                        document.cookie = `zoom_oauth_teacher=${profile.id}; path=/; max-age=600; SameSite=Lax`;
+                    }
                     window.location.href = res.data.url;
                 }
             } catch (error) {

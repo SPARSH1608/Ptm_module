@@ -87,7 +87,8 @@ model Student {
   batchId Int
   batch   Batch @relation(fields: [batchId], references: [id])
 
-  meetings Meeting[]
+  meetings      Meeting[]
+  notifications Notification[]
 }
 
 // ================= TEACHER =================
@@ -107,6 +108,7 @@ model Teacher {
   availabilities Availability[]
   meetings       Meeting[]
   slots          Slot[]
+  notifications  Notification[]
 
   providerSetting TeacherProviderSetting?
 }
@@ -180,10 +182,10 @@ model Meeting {
 
   slotId    Int @unique
   studentId Int
-  
+
   // Denormalized teacherId for easy access, though accessible via Slot too.
   // User schema has it.
-  teacherId Int 
+  teacherId Int
 
   status MeetingStatus @default(SCHEDULED)
 
@@ -201,7 +203,8 @@ model Meeting {
   student Student @relation(fields: [studentId], references: [id])
   teacher Teacher @relation(fields: [teacherId], references: [id])
 
-  submission FormSubmission?
+  submission    FormSubmission?
+  notifications Notification[]
 
   @@index([studentId, createdAt])
 }
@@ -307,5 +310,24 @@ model TeacherProviderSetting {
   refreshToken String?
   tokenExpiry  DateTime?
 
+  teacher Teacher @relation(fields: [teacherId], references: [id])
+}
+
+// ================= NOTIFICATIONS =================
+
+model Notification {
+  id          Int      @id @default(autoincrement())
+  meetingId   Int
+  title       String
+  message     String
+  joinUrl     String?
+  studentId   Int
+  teacherId   Int
+  studentSeen Boolean  @default(false)
+  teacherSeen Boolean  @default(false)
+  createdAt   DateTime @default(now())
+
+  meeting Meeting @relation(fields: [meetingId], references: [id])
+  student Student @relation(fields: [studentId], references: [id])
   teacher Teacher @relation(fields: [teacherId], references: [id])
 }

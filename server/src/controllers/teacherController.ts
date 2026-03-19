@@ -106,12 +106,6 @@ export const getZoomAuthUrl = async (req: Request, res: Response) => {
     try {
         const { generateZoomAuthUrl } = require('../services/zoomMeetingService');
         const url = generateZoomAuthUrl(teacherId);
-        // Cookie fallback: Zoom sometimes doesn't echo back state param
-        res.cookie('zoom_oauth_teacher', String(teacherId), {
-            httpOnly: true,
-            maxAge: 10 * 60 * 1000, // 10 minutes
-            sameSite: 'lax',
-        });
         res.json({ url });
     } catch (error) {
         res.status(500).json({ error: 'Failed to generate Zoom Auth URL' });

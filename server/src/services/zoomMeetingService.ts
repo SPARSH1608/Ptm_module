@@ -53,29 +53,38 @@ export const getZoomTokensFromCode = async (code: string) => {
 };
 
 const refreshZoomAccessToken = async (teacherId: number, refreshToken: string): Promise<string> => {
-    const response = await axios.post(
-        'https://zoom.us/oauth/token',
-        new URLSearchParams({
-            grant_type: 'refresh_token',
-            refresh_token: refreshToken,
-        }),
-        {
-            headers: {
-                Authorization: `Basic ${zoomBasicAuth()}`,
-                'Content-Type': 'application/x-www-form-urlencoded',
+    try {
+        const response = await axios.post(
+            'https://zoom.us/oauth/token',
+            new URLSearchParams({
+                grant_type: 'refresh_token',
+                refresh_token: refreshToken,
+            }),
+            {
+                headers: {
+                    Authorization: `Basic ${zoomBasicAuth()}`,
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+            }
+        );
+        const tokens = response.data;
+        await prisma.teacherProviderSetting.update({
+            where: { teacherId },
+            data: {
+                accessToken: tokens.access_token,
+                refreshToken: tokens.refresh_token,
+                tokenExpiry: new Date(Date.now() + tokens.expires_in * 1000),
             },
+        });
+        return tokens.access_token as string;
+    } catch (err: any) {
+        // Token revoked or from a different app — clear stored tokens so teacher is prompted to reconnect
+        if (err?.response?.data?.error === 'invalid_grant') {
+            await prisma.teacherProviderSetting.deleteMany({ where: { teacherId } });
+            throw new Error('Zoom connection expired. Please reconnect your Zoom account in Settings.');
         }
-    );
-    const tokens = response.data;
-    await prisma.teacherProviderSetting.update({
-        where: { teacherId },
-        data: {
-            accessToken: tokens.access_token,
-            refreshToken: tokens.refresh_token,
-            tokenExpiry: new Date(Date.now() + tokens.expires_in * 1000),
-        },
-    });
-    return tokens.access_token as string;
+        throw err;
+    }
 };
 
 export const createZoomMeeting = async (

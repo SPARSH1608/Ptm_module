@@ -1,6 +1,7 @@
 import { Request, Response } from 'express';
 import prisma from '../config/prisma';
 import { SlotStatus, MeetingStatus, Provider } from '@prisma/client';
+import { createBookingNotification } from '../services/notificationService';
 
 export const bookSlot = async (req: Request, res: Response) => {
     const { slotId, studentId: lmsUserId, studentName, teacherId: bodyTeacherId, responses } = req.body;
@@ -34,14 +35,19 @@ export const bookSlot = async (req: Request, res: Response) => {
             return res.status(400).json({ error: "Slot has no associated batch. Please contact support." });
         }
 
+        const cleanName = (studentName && studentName !== 'null' && studentName !== 'undefined') ? studentName : null;
         const studentRecord = await prisma.student.upsert({
             where: { userId: String(lmsUserId) },
-            update: {},
+            update: {
+                ...(cleanName ? { name: cleanName } : {}),
+                rollNumber: String(lmsUserId),
+                batchId,
+            },
             create: {
                 userId: String(lmsUserId),
                 rollNumber: String(lmsUserId),
-                name: studentName || String(lmsUserId),
-                batchId
+                name: cleanName ?? `Student-${String(lmsUserId)}`,
+                batchId,
             }
         });
 
@@ -126,6 +132,12 @@ export const bookSlot = async (req: Request, res: Response) => {
                 throw new Error("You already have another meeting scheduled during this time slot.");
             }
 
+            // Guard against orphaned meeting records (P2002)
+            const existingMeeting = await tx.meeting.findUnique({ where: { slotId } });
+            if (existingMeeting) {
+                throw new Error("Slot is no longer available");
+            }
+
             // Create Meeting
             const meeting = await tx.meeting.create({
                 data: {
@@ -175,6 +187,17 @@ export const bookSlot = async (req: Request, res: Response) => {
 
             return meeting;
         }, { timeout: 10000 });
+
+        // Fire notification after successful booking (non-blocking)
+        createBookingNotification(
+            result.id,
+            studentId,
+            teacherId,
+            studentRecord.name,
+            slotPrecheck.teacher?.name ?? 'Teacher',
+            slotPrecheck.startAt,
+            result.joinUrl ?? undefined
+        ).catch(err => console.error('Notification creation failed:', err));
 
         res.status(201).json(result);
     } catch (error: any) {
@@ -269,24 +292,32 @@ export const updateMeetingNotes = async (req: Request, res: Response) => {
 
 export const getMyMeetings = async (req: Request, res: Response) => {
     const jwtUser = (req as any).user;
-    const id = jwtUser?.id ?? (req.headers["userid"] ? parseInt(req.headers["userid"] as string) : null);
     const role = jwtUser?.role ?? "STUDENT";
 
-    if (!id) {
+    // For teachers/admins: numeric id from JWT. For students: raw header string (no parseInt).
+    const rawHeaderUserId = req.headers["userid"] as string | undefined;
+    const numericId = jwtUser?.id ?? (rawHeaderUserId ? parseInt(rawHeaderUserId) : null);
+    // Student identifier — keep as raw string to preserve IDs like '00011' or UUIDs.
+    const studentLmsId = jwtUser ? null : (rawHeaderUserId && rawHeaderUserId !== 'null' && rawHeaderUserId !== 'undefined' ? rawHeaderUserId : null);
+
+    if (role === "STUDENT" && !studentLmsId) {
         res.status(400).json({ error: "User identity required" });
         return;
     }
+    if ((role === "TEACHER" || role === "ADMIN") && (!numericId || isNaN(numericId as number))) {
+        res.status(400).json({ error: "User identity required" });
+        return;
+    }
+
     const { batchId, courseId, centerId, teacherId } = req.query;
 
     try {
         let where: any = {};
 
         if (role === "TEACHER") {
-            where.teacherId = id;
+            where.teacherId = numericId;
         } else if (role === "STUDENT") {
-            // id here is the LMS userId (from header), not the internal Student.id.
-            // Filter via the student relation so Prisma JOINs on Student.userId.
-            where.student = { userId: String(id) };
+            where.student = { userId: studentLmsId };
         } else if (role === "ADMIN") {
             if (teacherId) where.teacherId = parseInt(teacherId as string);
         }
@@ -324,6 +355,29 @@ export const getMyMeetings = async (req: Request, res: Response) => {
     } catch (error) {
         console.error("Fetch meetings error:", error);
         res.status(500).json({ error: "Failed to fetch meetings" });
+    }
+};
+
+export const getStudentMeetings = async (req: Request, res: Response) => {
+    const { userId } = req.query;
+    if (!userId || typeof userId !== 'string' || userId === 'null' || userId === 'undefined') {
+        return res.status(400).json({ error: 'userId query param required' });
+    }
+
+    try {
+        const meetings = await prisma.meeting.findMany({
+            where: { student: { userId } },
+            include: {
+                slot: true,
+                student: { include: { batch: { include: { course: true, center: true } } } },
+                teacher: true,
+            },
+            orderBy: { slot: { startAt: 'desc' } },
+        });
+        res.json(meetings);
+    } catch (error) {
+        console.error('getStudentMeetings error:', error);
+        res.status(500).json({ error: 'Failed to fetch meetings' });
     }
 };
 

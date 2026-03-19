@@ -1,15 +1,33 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Outlet, NavLink, useNavigate, useLocation, Navigate } from 'react-router-dom';
-import { Calendar, Users, FileText, Settings, Search, ChevronDown, LogOut, LayoutDashboard, Menu, X, ClipboardList } from 'lucide-react';
+import { Calendar, Users, FileText, Settings, Search, ChevronDown, LogOut, LayoutDashboard, Menu, X, ClipboardList, Bell } from 'lucide-react';
 import clsx from 'clsx';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../contexts/AuthContext';
+import { fetchNotifications } from '../services/notificationService';
 
 const DashboardLayout: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+    const [unreadCount, setUnreadCount] = useState(0);
     const { user, logout, loading } = useAuth();
+
+    useEffect(() => {
+        if (user?.role !== 'TEACHER') return;
+        const load = () => {
+            fetchNotifications()
+                .then(data => setUnreadCount(data.filter(n => !n.teacherSeen).length))
+                .catch(() => {});
+        };
+        load();
+        const interval = setInterval(load, 60000);
+        window.addEventListener('notifications-updated', load);
+        return () => {
+            clearInterval(interval);
+            window.removeEventListener('notifications-updated', load);
+        };
+    }, [user]);
 
     if (loading) {
         return (
@@ -28,6 +46,7 @@ const DashboardLayout: React.FC = () => {
         { icon: Users, label: 'Meets', path: '/dashboard/meets', roles: ['ADMIN', 'TEACHER'] },
         { icon: FileText, label: 'Student Forms', path: '/dashboard/forms', roles: ['TEACHER'] },
         { icon: ClipboardList, label: 'Manage Forms', path: '/dashboard/admin/forms', roles: ['ADMIN'] },
+        { icon: Bell, label: 'Notifications', path: '/dashboard/notifications', roles: ['TEACHER'], badge: unreadCount },
         { icon: Settings, label: 'Settings', path: '/dashboard/settings', roles: ['TEACHER'] },
     ];
 
@@ -69,7 +88,12 @@ const DashboardLayout: React.FC = () => {
                         {({ isActive }: { isActive: boolean }) => (
                             <>
                                 <item.icon className={clsx("w-4.5 h-4.5 stroke-[1.5]", isActive ? "text-gray-900" : "text-gray-400 group-hover:text-gray-600")} />
-                                <span>{item.label}</span>
+                                <span className="flex-1">{item.label}</span>
+                                {'badge' in item && (item.badge ?? 0) > 0 && (
+                                    <span className="min-w-[18px] h-[18px] px-1 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">
+                                        {(item.badge ?? 0) > 9 ? '9+' : item.badge}
+                                    </span>
+                                )}
                             </>
                         )}
                     </NavLink>

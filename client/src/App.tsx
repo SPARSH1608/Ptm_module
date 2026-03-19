@@ -5,6 +5,7 @@ import CalendarView from './pages/CalendarView';
 import MeetsView from './pages/MeetsView';
 import StudentFormsView from './pages/StudentFormsView';
 import SettingsView from './pages/SettingsView';
+import NotificationsView from './pages/NotificationsView';
 import GoogleCallback from './pages/GoogleCallback';
 import AdminFormManager from './pages/AdminFormManager';
 
@@ -31,6 +32,7 @@ function App() {
             <Route path="meets" element={<MeetsView />} />
             <Route path="forms" element={<StudentFormsView />} />
             <Route path="admin/forms" element={<AdminFormManager />} />
+            <Route path="notifications" element={<NotificationsView />} />
             <Route path="settings" element={<SettingsView />} />
           </Route>
         </Routes>
